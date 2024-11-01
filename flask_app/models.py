@@ -13,10 +13,10 @@ class Costumer(db.Model):
 
     def to_dict(self):
         return {
-            'id': str(self.id),
-            'phone': self.phone,
-            'position_in_line': self.position_in_line,
-            'is_turn': self.is_turn
+            "id": str(self.id),
+            "phone": self.phone,
+            "position_in_line": self.position_in_line,
+            "is_turn": self.is_turn
         }
 
 

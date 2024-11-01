@@ -1,6 +1,9 @@
-from flask_app import  db  #, jwt__
+from flask_app import  db, sock #, jwt__
 from flask import jsonify, request
 from flask_app.models import Costumer
+import threading
+import time
+import json
 #from flask_app.utils.utils import check_and_update, check_username, load_roles, jwt_handling, create_token_and_send_email, can_donate
 #from flask_app.constants import errors, messages
 #from flask_jwt_extended import jwt_required, get_jwt_identity, create_refresh_token, create_access_token, get_jwt
@@ -20,22 +23,24 @@ def get_app():
     return app
 
 app = get_app()
-
+sera = False
 
 # Mensagens e erros
 messages = {
-    "LIST_COSTUMERS": "Lista de clientes recuperada com sucesso.",
-    "CREATE_COSTUMER": "Cliente criado com sucesso.",
-    "GET_COSTUMER": "Cliente recuperado com sucesso.",
-    "UPDATE_COSTUMER": "Cliente atualizado com sucesso.",
+    "LIST_COSTUMERS": "Costumer list updated",
+    "CREATE_COSTUMER": "Costumer created",
+    "GET_COSTUMER": "Costumer found",
+    "UPDATE_COSTUMER": "Costumer updated",
     "DELETE_COSTUMER": "Cliente deletado com sucesso.",
-    "NEXT_COSTUMER_UPDATED": "Senha atualizada com sucesso"
+    "NEXT_COSTUMER_UPDATED": "Position updated",
+    "NO_NEXT_COSTUMER": "There is only one costumer on the line",
+    "NO_CURRENT_COSTUMER": "There are no costumers on the line"
 }
 
 errors = {
-    "NOT_FOUND": "Cliente não encontrado.",
-    "INTERNAL_ERROR": "Erro interno do servidor.",
-    "INVALID_DATA": "Dados inválidos."
+    "NOT_FOUND": "Costumer was not found",
+    "INTERNAL_ERROR": "Internal server error",
+    "INVALID_DATA": "Invalid data"
 }
 
 # 1. GET - Listar todos os Costumers
@@ -149,7 +154,7 @@ def delete_costumer(id):
 
 @app.route('/update_current_costumer', methods=['PUT'])
 def update_current_costumer():
-    #try:
+    try:
         # Buscar o cliente atual com is_turn=True
         current_costumer = Costumer.query.filter_by(is_turn=True).first()
 
@@ -182,6 +187,8 @@ def update_current_costumer():
 
             db.session.delete(current_costumer)
             db.session.commit()
+            global sera
+            sera = not sera
             return response.response(), 200
         else:
             response = BaseResponse(
@@ -191,12 +198,36 @@ def update_current_costumer():
             )
             return response.response(), 404
 
-    #except Exception as e:
-    #    print(e)
-    #    db.session.rollback()  # Desfaz qualquer alteração em caso de erro
-    #    response = BaseResponse(
-    #        data=None,
-    #        errors=errors["INTERNAL_ERROR"],
-    #        message=errors["INTERNAL_ERROR"]
-    #    )
-    #    return response.response(), 500
+    except Exception as e:
+        print(e)
+        db.session.rollback()  # Desfaz qualquer alteração em caso de erro
+        response = BaseResponse(
+            data=None,
+            errors=errors["INTERNAL_ERROR"],
+            message=errors["INTERNAL_ERROR"]
+        )
+        return response.response(), 500
+
+
+def monitor(sock):
+    global sera
+    previous_value = sera
+    while True:
+        time.sleep(1)  # Checagem a cada 1 segundo
+        if sera != previous_value:
+            previous_value = sera
+            with app.app_context():
+                current_costumer = Costumer.query.filter_by(is_turn=True).first()
+            position = current_costumer.to_dict()
+
+            sock.send(json.dumps(position))
+
+@sock.route('/current_costumer_socket')
+def current_costumer_to_show(sock):
+    monitor_thread = threading.Thread(target=monitor, args=(sock,))
+    monitor_thread.daemon = True
+    monitor_thread.start()
+
+    # Mantenha o WebSocket ativo enquanto o monitor está rodando
+    while True:
+        sock.receive()  # Ou algum outro código para manter a conexão aberta
