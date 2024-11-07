@@ -4,6 +4,7 @@ from flask_app.models import Costumer
 import threading
 import time
 import json
+from simple_websocket import ConnectionClosed, ConnectionError
 #from flask_app.utils.utils import check_and_update, check_username, load_roles, jwt_handling, create_token_and_send_email, can_donate
 #from flask_app.constants import errors, messages
 #from flask_jwt_extended import jwt_required, get_jwt_identity, create_refresh_token, create_access_token, get_jwt
@@ -209,25 +210,43 @@ def update_current_costumer():
         return response.response(), 500
 
 
-def monitor(sock):
+def monitor(sock, stop_thread):
     global sera
     previous_value = sera
-    while True:
+    print("Thread started")
+    while not stop_thread.is_set():
         time.sleep(1)  # Checagem a cada 1 segundo
         if sera != previous_value:
             previous_value = sera
             with app.app_context():
                 current_costumer = Costumer.query.filter_by(is_turn=True).first()
             position = current_costumer.to_dict()
+            try:
+                sock.send(json.dumps(position))
+            except ConnectionClosed:
+                print("Connection closed")
+                return
 
-            sock.send(json.dumps(position))
 
 @sock.route('/current_costumer_socket')
 def current_costumer_to_show(sock):
-    monitor_thread = threading.Thread(target=monitor, args=(sock,))
+    stop_thread = threading.Event()
+    monitor_thread = threading.Thread(target=monitor, args=(sock, stop_thread,))
     monitor_thread.daemon = True
     monitor_thread.start()
 
+
     # Mantenha o WebSocket ativo enquanto o monitor está rodando
     while True:
-        sock.receive()  # Ou algum outro código para manter a conexão aberta
+        try:
+            sock.receive()  # Ou algum outro código para manter a conexão aberta
+        except ConnectionClosed or ConnectionError:
+            stop_thread.set()
+            print("Event set")
+            if not monitor_thread.is_alive():
+                break
+
+    print("Closing connection")
+    monitor_thread.join()
+    if not monitor_thread.is_alive():
+        print("Connection closed")
