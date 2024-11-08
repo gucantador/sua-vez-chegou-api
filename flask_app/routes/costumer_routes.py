@@ -26,6 +26,9 @@ def get_app():
 app = get_app()
 sera = False
 
+active_connections = []
+monitor_thread_started = False
+
 # Mensagens e erros
 messages = {
     "LIST_COSTUMERS": "Costumer list updated",
@@ -210,43 +213,50 @@ def update_current_costumer():
         return response.response(), 500
 
 
-def monitor(sock, stop_thread):
+def monitor():
     global sera
+    global active_connections
     previous_value = sera
     print("Thread started")
-    while not stop_thread.is_set():
+    while True:
         time.sleep(1)  # Checagem a cada 1 segundo
         if sera != previous_value:
             previous_value = sera
             with app.app_context():
                 current_costumer = Costumer.query.filter_by(is_turn=True).first()
             position = current_costumer.to_dict()
-            try:
-                sock.send(json.dumps(position))
-            except ConnectionClosed:
-                print("Connection closed")
-                return
+            for i in range(len(active_connections)):
+                try:
+                    active_connections[i].send(json.dumps(position))
+                except ConnectionClosed:
+                    print("Connection closed")
+                    return
 
 
 @sock.route('/current_costumer_socket')
 def current_costumer_to_show(sock):
-    stop_thread = threading.Event()
-    monitor_thread = threading.Thread(target=monitor, args=(sock, stop_thread,))
-    monitor_thread.daemon = True
-    monitor_thread.start()
+
+    global active_connections
+    global monitor_thread_started
+    active_connections.append(sock)
+
+
+    if not monitor_thread_started:
+
+        monitor_thread_started = True
+        monitor_thread = threading.Thread(target=monitor)
+        monitor_thread.daemon = True
+        monitor_thread.start()
+
 
 
     # Mantenha o WebSocket ativo enquanto o monitor está rodando
-    while True:
-        try:
-            sock.receive()  # Ou algum outro código para manter a conexão aberta
-        except ConnectionClosed or ConnectionError:
-            stop_thread.set()
-            print("Event set")
-            if not monitor_thread.is_alive():
-                break
+    try:
+        while True:
+            sock.receive()
+                # Recebe dados para manter a conexão aberta
+    except ConnectionClosed:
+        print("Conexão WebSocket fechada")
+        active_connections.remove(sock)
 
-    print("Closing connection")
-    monitor_thread.join()
-    if not monitor_thread.is_alive():
-        print("Connection closed")
+
