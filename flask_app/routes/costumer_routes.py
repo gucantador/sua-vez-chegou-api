@@ -25,9 +25,11 @@ def get_app():
 
 app = get_app()
 sera = False
+new = False
 
 active_connections = []
 monitor_thread_started = False
+monitor_thread_started2 = False
 
 # Mensagens e erros
 messages = {
@@ -89,6 +91,9 @@ def create_costumer():
         new_costumer = Costumer(phone=phone, position_in_line=position_in_line, is_turn=is_turn)
         db.session.add(new_costumer)
         db.session.commit()
+
+        global new
+        new = not new
 
         response = BaseResponse(data=new_costumer.to_dict(), errors=None, message=messages["CREATE_COSTUMER"])
         return response.response(), 201
@@ -224,13 +229,38 @@ def monitor():
             previous_value = sera
             with app.app_context():
                 current_costumer = Costumer.query.filter_by(is_turn=True).first()
+                costumers = len(Costumer.query.all())
             position = current_costumer.to_dict()
+            position["costumers_in_line"]=costumers
             for i in range(len(active_connections)):
                 try:
                     active_connections[i].send(json.dumps(position))
                 except ConnectionClosed:
                     print("Connection closed")
                     return
+
+
+def monitor_line(sock):
+    global new
+    #global sera
+
+    previous_value = new
+    #previous_value_sera = sera
+    print("Thread started")
+    while True:
+        time.sleep(1)  # Checagem a cada 1 segundo
+
+        if new != previous_value:
+            previous_value = new
+            print("Entrou aqui")
+
+            with app.app_context():
+                costumers = len(Costumer.query.all())
+            try:
+                sock.send(json.dumps(dict(costumers=costumers)))
+            except ConnectionClosed:
+                print("Connection closed")
+                return
 
 
 @sock.route('/current_costumer_socket')
@@ -260,3 +290,23 @@ def current_costumer_to_show(sock):
         active_connections.remove(sock)
 
 
+
+@sock.route('/how_many_in_line_socket')
+def how_many_in_line_socket(sock):
+
+    global monitor_thread_started2
+
+    if not monitor_thread_started2:
+
+        monitor_thread_started2 = True
+        monitor_thread = threading.Thread(target=monitor_line, args=[sock,])
+        monitor_thread.daemon = True
+        monitor_thread.start()
+
+    # Mantenha o WebSocket ativo enquanto o monitor está rodando
+    try:
+        while True:
+            sock.receive()
+                # Recebe dados para manter a conexão aberta
+    except ConnectionClosed:
+        print("Conexão WebSocket fechada")
