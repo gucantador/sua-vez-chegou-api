@@ -146,9 +146,12 @@ def update_costumer(id):
 def delete_costumer(id):
     try:
         costumer = Costumer.query.get(id)
+        if costumer.is_turn:
+            update_current_costumer()
+
         if not costumer:
             response = BaseResponse(data=None, errors=errors["NOT_FOUND"], message=errors["NOT_FOUND"])
-            return jsonify(response.response()), 404
+            return response.response(), 404
 
         db.session.delete(costumer)
         db.session.commit()
@@ -176,11 +179,14 @@ def update_current_costumer():
             return jsonify(response.response()), 404
 
         # Atualizar o cliente atual para is_turn=False
-        current_costumer.is_turn = False
+
         db.session.commit()
 
         # Buscar o próximo cliente na fila (com base na posição)
+
         next_costumer = Costumer.query.filter(Costumer.position_in_line > current_costumer.position_in_line).order_by(Costumer.position_in_line).first()
+        db.session.delete(current_costumer)
+        db.session.commit()
 
         if next_costumer:
             # Atualizar o próximo cliente para is_turn=True
@@ -194,8 +200,7 @@ def update_current_costumer():
                 message=messages["NEXT_COSTUMER_UPDATED"]
             )
 
-            db.session.delete(current_costumer)
-            db.session.commit()
+
             global sera
             sera = not sera
             return response.response(), 200
