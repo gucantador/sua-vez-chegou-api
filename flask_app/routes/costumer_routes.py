@@ -228,6 +228,18 @@ def monitor():
     global active_connections
     previous_value = sera
     print("Thread started")
+
+    with app.app_context():
+        current_costumer = Costumer.query.filter_by(is_turn=True).first()
+        costumers = len(Costumer.query.all())
+    position = current_costumer.to_dict()
+    position["costumers_in_line"] = costumers
+    for i in range(len(active_connections)):
+        try:
+            active_connections[i].send(json.dumps(position))
+        except ConnectionClosed:
+            print("Connection closed")
+
     while True:
         time.sleep(1)  # Checagem a cada 1 segundo
         if sera != previous_value:
@@ -252,6 +264,14 @@ def monitor_line(sock):
     previous_value = new
     #previous_value_sera = sera
     print("Thread started")
+
+    with app.app_context():
+        costumers = len(Costumer.query.all())
+    try:
+        sock.send(json.dumps(dict(costumers=costumers)))
+    except ConnectionClosed:
+        print("Connection closed")
+
     while True:
         time.sleep(1)  # Checagem a cada 1 segundo
 
