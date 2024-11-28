@@ -229,6 +229,8 @@ def monitor():
     previous_value = sera
     print("Thread started")
 
+    time.sleep(2)
+
     with app.app_context():
         current_costumer = Costumer.query.filter_by(is_turn=True).first()
         costumers = len(Costumer.query.all())
@@ -264,6 +266,8 @@ def monitor_line(sock):
     previous_value = new
     #previous_value_sera = sera
     print("Thread started")
+
+    time.sleep(2)
 
     with app.app_context():
         costumers = len(Costumer.query.all())
